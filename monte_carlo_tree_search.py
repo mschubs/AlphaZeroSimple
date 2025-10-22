@@ -3,6 +3,47 @@ import math
 import numpy as np
 
 
+def add_dirichlet_noise(action_probs, valid_moves, alpha=0.3, epsilon=0.25):
+    """
+    Add Dirichlet noise to action probabilities for exploration during training.
+    
+    Args:
+        action_probs: Neural network's action probabilities
+        valid_moves: Binary array indicating valid moves
+        alpha: Dirichlet concentration parameter (0.3 for Connect4, 0.03 for Go)
+        epsilon: Mixing weight (0.25 is standard)
+    
+    Returns:
+        Noisy action probabilities: (1-ε)*p + ε*noise
+    """
+    valid_actions = [i for i, valid in enumerate(valid_moves) if valid]
+    
+    if len(valid_actions) == 0:
+        return action_probs
+    
+    # Generate Dirichlet noise only for valid actions
+    noise = np.zeros_like(action_probs)
+    dirichlet_noise = np.random.dirichlet([alpha] * len(valid_actions))
+    
+    # Assign noise to valid actions
+    for i, action in enumerate(valid_actions):
+        noise[action] = dirichlet_noise[i]
+    
+    # Mix original probabilities with noise
+    noisy_probs = (1 - epsilon) * action_probs + epsilon * noise
+    
+    # Ensure probabilities are normalized and valid
+    noisy_probs = noisy_probs * valid_moves  # Zero out invalid moves
+    if np.sum(noisy_probs) > 0:
+        noisy_probs /= np.sum(noisy_probs)
+    else:
+        # Fallback to uniform over valid moves
+        noisy_probs = np.array(valid_moves, dtype=float)
+        noisy_probs /= np.sum(noisy_probs)
+    
+    return noisy_probs
+
+
 def ucb_score(parent, child):
     """
     The score for an action that would transition between the parent and child.
@@ -94,8 +135,16 @@ class MCTS:
         self.model = model
         self.args = args
 
-    def run(self, model, state, to_play):
-
+    def run(self, model, state, to_play, add_noise=False):
+        """
+        Run MCTS simulations and return the root node.
+        
+        Args:
+            model: Neural network model
+            state: Current game state  
+            to_play: Player to move (+1 or -1)
+            add_noise: Whether to add Dirichlet noise for exploration (training only)
+        """
         root = Node(0, to_play)
 
         # EXPAND root
@@ -103,6 +152,13 @@ class MCTS:
         valid_moves = self.game.get_valid_moves(state)
         action_probs = action_probs * valid_moves  # mask invalid moves
         action_probs /= np.sum(action_probs)
+        
+        # Add Dirichlet noise for exploration during training
+        if add_noise:
+            alpha = self.args.get('dirichlet_alpha', 0.3)  # 0.3 for Connect4
+            epsilon = self.args.get('dirichlet_epsilon', 0.25)  # Standard value
+            action_probs = add_dirichlet_noise(action_probs, valid_moves, alpha, epsilon)
+        
         root.expand(state, to_play, action_probs)
 
         for _ in range(self.args['num_simulations']):

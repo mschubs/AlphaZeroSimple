@@ -14,7 +14,7 @@ class Connect2Game:
         self.win = 2
 
     def get_init_board(self):
-        b = np.zeros((self.columns,), dtype=np.int)
+        b = np.zeros((self.columns,), dtype=np.int64)
         return b
 
     def get_board_size(self):
